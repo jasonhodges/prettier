@@ -39,19 +39,29 @@ const isSCSSControlDirectiveNode = utils.isSCSSControlDirectiveNode;
 const isDetachedRulesetDeclarationNode = utils.isDetachedRulesetDeclarationNode;
 const isRelationalOperatorNode = utils.isRelationalOperatorNode;
 const isEqualityOperatorNode = utils.isEqualityOperatorNode;
+const isMultiplicationNode = utils.isMultiplicationNode;
+const isDivisionNode = utils.isDivisionNode;
+const isAdditionNode = utils.isAdditionNode;
 const isMathOperatorNode = utils.isMathOperatorNode;
 const isEachKeywordNode = utils.isEachKeywordNode;
 const isParenGroupNode = utils.isParenGroupNode;
 const isForKeywordNode = utils.isForKeywordNode;
 const isURLFunctionNode = utils.isURLFunctionNode;
 const isIfElseKeywordNode = utils.isIfElseKeywordNode;
-const hasLessExtendValueNode = utils.hasLessExtendValueNode;
-const hasComposesValueNode = utils.hasComposesValueNode;
-const hasParensAroundValueNode = utils.hasParensAroundValueNode;
+const hasLessExtendNode = utils.hasLessExtendNode;
+const hasComposesNode = utils.hasComposesNode;
+const hasParensAroundNode = utils.hasParensAroundNode;
+const hasEmptyRawBefore = utils.hasEmptyRawBefore;
 const isKeyValuePairNode = utils.isKeyValuePairNode;
 const isDetachedRulesetCallNode = utils.isDetachedRulesetCallNode;
 const isPostcssSimpleVarNode = utils.isPostcssSimpleVarNode;
 const isSCSSMapItemNode = utils.isSCSSMapItemNode;
+const isInlineValueCommentNode = utils.isInlineValueCommentNode;
+const isHashNode = utils.isHashNode;
+const isLeftCurlyBraceNode = utils.isLeftCurlyBraceNode;
+const isRightCurlyBraceNode = utils.isRightCurlyBraceNode;
+const isWordNode = utils.isWordNode;
+const isColonNode = utils.isColonNode;
 
 function shouldPrintComma(options) {
   switch (options.trailingComma) {
@@ -135,8 +145,8 @@ function genericPrint(path, options, print) {
         // it will put a space after `:` and break it. Ideally we should parse
         // less files with less, but we can hardcode this to work with scss as
         // well.
-        hasLessExtendValueNode(node) ? "" : " ",
-        hasComposesValueNode(node)
+        hasLessExtendNode(node) ? "" : " ",
+        hasComposesNode(node)
           ? removeLines(path.call(print, "value"))
           : path.call(print, "value"),
         node.raws.important
@@ -190,7 +200,7 @@ function genericPrint(path, options, print) {
                 " ",
                 path.call(print, "value"),
                 isSCSSControlDirectiveNode(node)
-                  ? hasParensAroundValueNode(node)
+                  ? hasParensAroundNode(node)
                     ? " "
                     : line
                   : ""
@@ -436,8 +446,8 @@ function genericPrint(path, options, print) {
           continue;
         }
 
-        // Ignore colon
-        if (iNode.value === ":") {
+        // Ignore colon (i.e. `:`)
+        if (isColonNode(iNode) || isColonNode(iNextNode)) {
           continue;
         }
 
@@ -461,166 +471,141 @@ function genericPrint(path, options, print) {
           continue;
         }
 
+        // Add `hardline` after inline comment (i.e. `// comment\n foo: bar;`)
+        if (isInlineValueCommentNode(iNode)) {
+          parts.push(hardline);
+
+          continue;
+        }
+
+        // Ignore inline comment, they already contain newline at end (i.e. `// Comment`)
         if (
-          (iPrevNode &&
-            iPrevNode.type === "value-comment" &&
-            iPrevNode.inline) ||
-          (iNextNode.type === "value-comment" && iNextNode.inline)
+          (iPrevNode && isInlineValueCommentNode(iPrevNode)) ||
+          isInlineValueCommentNode(iNextNode)
         ) {
           continue;
         }
 
-        const isHash = iNode.type === "value-word" && iNode.value === "#";
-        const isLeftCurlyBrace =
-          iNode.type === "value-word" && iNode.value === "{";
-        const isNextLeftCurlyBrace =
-          iNextNode.type === "value-word" && iNextNode.value === "{";
-        const isRightCurlyBrace =
-          iNode.type === "value-word" && iNode.value === "}";
-        const isNextRightCurlyBrace =
-          iNextNode.type === "value-word" && iNextNode.value === "}";
-
-        // Ignore interpolation in SCSS (i.e. `#{variable}`)
+        // Ignore spaces after `#` and after `{` and before `}` in SCSS interpolation (i.e. `#{variable}`)
         if (
-          isHash ||
-          isLeftCurlyBrace ||
-          isNextRightCurlyBrace ||
-          (isNextLeftCurlyBrace &&
-            iNextNode.raws &&
-            iNextNode.raws.before === "") ||
-          (isRightCurlyBrace && iNextNode.raws && iNextNode.raws.before === "")
+          isHashNode(iNode) ||
+          isLeftCurlyBraceNode(iNode) ||
+          isRightCurlyBraceNode(iNextNode) ||
+          (isLeftCurlyBraceNode(iNextNode) && hasEmptyRawBefore(iNextNode)) ||
+          (isRightCurlyBraceNode(iNode) && hasEmptyRawBefore(iNextNode))
         ) {
           continue;
         }
 
         // Ignore css variables and interpolation in SCSS (i.e. `--#{$var}`)
-        if (iNode.value === "--" && iNextNode.value === "#") {
+        if (iNode.value === "--" && isHashNode(iNextNode)) {
           continue;
         }
-
-        const isNextHash =
-          iNextNode.type === "value-word" && iNextNode.value === "#";
 
         const isMathOperator = isMathOperatorNode(iNode);
         const isNextMathOperator = isMathOperatorNode(iNextNode);
 
-        const isMultiplication =
-          !isNextHash && isMathOperator && iNode.value === "*";
-        const isNextMultiplication =
-          !isRightCurlyBrace && isNextMathOperator && iNextNode.value === "*";
+        // Todo add check on `-apple-system`
 
-        const isDivision = !isNextHash && isMathOperator && iNode.value === "/";
-        const isNextDivision =
-          !isRightCurlyBrace && isNextMathOperator && iNextNode.value === "/";
+        if (isMathOperator || isNextMathOperator) {
+          const isMultiplication =
+            !isHashNode(iNextNode) && isMultiplicationNode(iNode);
+          const isNextMultiplication =
+            !isRightCurlyBraceNode(iNode) && isMultiplicationNode(iNextNode);
 
-        const isAddition = !isNextHash && isMathOperator && iNode.value === "+";
-        const isNextAddition =
-          !isRightCurlyBrace && isNextMathOperator && iNextNode.value === "+";
+          const isDivision = !isHashNode(iNextNode) && isDivisionNode(iNode);
+          const isNextDivision =
+            !isRightCurlyBraceNode(iNode) && isDivisionNode(iNextNode);
 
-        const isPrevFunction = iPrevNode && iPrevNode.type === "value-func";
-        const isFunction = iNode.type === "value-func";
-        const isNextFunction = iNextNode.type === "value-func";
-        const isNextNextFunction =
-          iNextNextNode && iNextNextNode.type === "value-func";
+          const isAddition = !isHashNode(iNextNode) && isAdditionNode(iNode);
+          const isNextAddition =
+            !isRightCurlyBraceNode(iNode) && isAdditionNode(iNextNode);
 
-        const isPrevWord =
-          iPrevNode &&
-          ["value-word", "value-atword"].indexOf(iPrevNode.type) !== -1;
-        const isWord =
-          ["value-word", "value-atword"].indexOf(iNode.type) !== -1;
-        const isNextWord =
-          ["value-word", "value-atword"].indexOf(iNextNode.type) !== -1;
-        const isNextNextWord =
-          iNextNextNode &&
-          ["value-word", "value-atword"].indexOf(iNextNextNode.type) !== -1;
-
-        // Math operators
-        const insideCalcFunction = insideValueFunctionNode(path, "calc");
-
-        const hasSpaceBeforeOperator =
-          isNextNextFunction || isNextNextWord || isFunction || isWord;
-
-        const hasSpaceAfterOperator =
-          isNextFunction || isNextWord || isPrevFunction || isPrevWord;
-
-        if (
-          (isMathOperator || isNextMathOperator) &&
-          // Multiplication
-          !isMultiplication &&
-          !isNextMultiplication &&
-          // Division
-          !(isNextDivision && (hasSpaceBeforeOperator || insideCalcFunction)) &&
-          !(isDivision && (hasSpaceAfterOperator || insideCalcFunction)) &&
-          // Addition
-          !(isNextAddition && hasSpaceBeforeOperator) &&
-          !(isAddition && hasSpaceAfterOperator)
-        ) {
-          const isNextParenGroup = isParenGroupNode(iNextNode);
-          const isNextValueNumber = iNextNode.type === "value-number";
+          const hasSpaceBeforeOperator =
+            (iNextNextNode && iNextNextNode.type === "value-func") ||
+            (iNextNextNode && isWordNode(iNextNextNode)) ||
+            iNode.type === "value-func" ||
+            isWordNode(iNode);
+          const hasSpaceAfterOperator =
+            iNextNode.type === "value-func" ||
+            isWordNode(iNextNode) ||
+            (iPrevNode && iPrevNode.type === "value-func") ||
+            (iPrevNode && isWordNode(iPrevNode));
+          const insideCalcFunction = insideValueFunctionNode(path, "calc");
 
           if (
-            (iNextNode.raws && iNextNode.raws.before === "") ||
-            (isMathOperator &&
-              (isNextParenGroup ||
-                isNextWord ||
-                isNextValueNumber ||
-                isMathOperatorNode(iNextNode)) &&
-              (!iPrevNode || (iPrevNode && isMathOperatorNode(iPrevNode))))
+            // Multiplication
+            !isMultiplication &&
+            !isNextMultiplication &&
+            // Division
+            !(
+              isNextDivision &&
+              (hasSpaceBeforeOperator || insideCalcFunction)
+            ) &&
+            !(isDivision && (hasSpaceAfterOperator || insideCalcFunction)) &&
+            // Addition
+            !(isNextAddition && hasSpaceBeforeOperator) &&
+            !(isAddition && hasSpaceAfterOperator)
           ) {
-            continue;
+            if (
+              hasEmptyRawBefore(iNextNode) ||
+              (isMathOperator &&
+                (isParenGroupNode(iNextNode) ||
+                  isWordNode(iNextNode) ||
+                  iNextNode.type === "value-number" ||
+                  isMathOperatorNode(iNextNode)) &&
+                (!iPrevNode || (iPrevNode && isMathOperatorNode(iPrevNode))))
+            ) {
+              continue;
+            }
           }
         }
 
-        const isEqualityOperator =
-          isControlDirective && isEqualityOperatorNode(iNode);
-        const isRelationalOperator =
-          isControlDirective && isRelationalOperatorNode(iNode);
-        const isNextEqualityOperator =
-          isControlDirective && isEqualityOperatorNode(iNextNode);
-        const isNextRelationalOperator =
-          isControlDirective && isRelationalOperatorNode(iNextNode);
-        const isNextIfElseKeyword =
-          isControlDirective && isIfElseKeywordNode(iNextNode);
-        const isEachKeyword = isControlDirective && isEachKeywordNode(iNode);
-        const isNextEachKeyword =
-          isControlDirective && isEachKeywordNode(iNextNode);
-        const isForKeyword =
-          atRuleAncestorNode &&
-          atRuleAncestorNode.name === "for" &&
-          isForKeywordNode(iNode);
-        const isNextForKeyword =
-          isControlDirective && isForKeywordNode(iNextNode);
-        const IsNextColon = iNextNode.value === ":";
-
+        // Formatting `grid` property
         if (isGridValue) {
           if (iNode.source.start.line !== iNextNode.source.start.line) {
             parts.push(hardline);
+
             didBreak = true;
           } else {
             parts.push(" ");
           }
-        } else if (iNode.type === "value-comment" && iNode.inline) {
-          parts.push(hardline);
-        } else if (
-          isNextMathOperator ||
-          isNextEqualityOperator ||
-          isNextRelationalOperator ||
-          isNextIfElseKeyword ||
-          isForKeyword ||
-          isEachKeyword ||
-          (atRuleAncestorNode &&
-            atRuleAncestorNode.name.toLowerCase() === "namespace")
+
+          continue;
+        }
+
+        // Handle keywords in SCSS control directive
+        if (
+          isControlDirective &&
+          (isEqualityOperatorNode(iNextNode) ||
+            isRelationalOperatorNode(iNextNode) ||
+            isIfElseKeywordNode(iNextNode) ||
+            isEachKeywordNode(iNode) ||
+            isForKeywordNode(iNode))
         ) {
           parts.push(" ");
-        } else if (
-          !IsNextColon ||
-          isEqualityOperator ||
-          isRelationalOperator ||
-          isNextForKeyword ||
-          isNextEachKeyword
-        ) {
-          parts.push(line);
+
+          continue;
         }
+
+        // At-rule `namespace` should be in one line
+        if (
+          atRuleAncestorNode &&
+          atRuleAncestorNode.name.toLowerCase() === "namespace"
+        ) {
+          parts.push(" ");
+
+          continue;
+        }
+
+        if (isNextMathOperator) {
+          parts.push(" ");
+
+          continue;
+        }
+
+        // Be default all values go through `line`
+        parts.push(line);
       }
 
       if (didBreak) {
